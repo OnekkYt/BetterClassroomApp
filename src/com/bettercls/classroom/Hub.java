@@ -55,7 +55,7 @@ final class Hub {
             + "&acceptformat=crx2,crx3"
             + "&x=id%3Dnldhifdlnmmkgngbnnmkoppinhafblbi%26installsource%3Dondemand%26uc";
     static final String UA_CHROME = "Chrome/130.0.0.0";
-    private static final long CHECK_EVERY_MS = 6L * 3600 * 1000;
+    private static final long CHECK_EVERY_MS = 30L * 60 * 1000;
 
     static Hub I;
     /** A dev build carries its own extension and never touches the Web Store. */
@@ -92,34 +92,10 @@ final class Hub {
         } catch (IOException e) {
             android.util.Log.e("BC", "bundled install failed", e);
         }
+        // an update downloaded last session is live now; drop everything else
+        File[] stale = root.listFiles();
+        if (stale != null) for (File f : stale) if (!f.equals(cur)) deleteRec(f);
         startBackground();
-    }
-
-    /**
-     * Look for a newer extension and call back on the UI thread once that is
-     * settled, or after the wait runs out so a bad connection never blocks the app.
-     */
-    void checkThen(Runnable done, long waitMs) {
-        if (dev) { ui.post(done); return; }
-        java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
-        Runnable once = () -> { if (fired.compareAndSet(false, true)) ui.post(done); };
-        synchronized (this) {
-            if (updating) { once.run(); return; }
-            updating = true;
-        }
-        ui.postDelayed(once, waitMs);
-        io.execute(() -> {
-            String msg = "";
-            try {
-                msg = updateNow();
-                prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply();
-            } catch (Exception e) {
-                android.util.Log.w("BC", "update check failed", e);
-            }
-            synchronized (this) { updating = false; }
-            if (msg.startsWith("Extension updated")) toast(msg);
-            once.run();
-        });
     }
 
     /* --------------------------------------------------------- extension files */
@@ -334,7 +310,31 @@ final class Hub {
         });
     }
 
+    /** The newest version already on disk: the running one, or one staged for the next start. */
+    private String newestVersion() {
+        File m = new File(root, prefs.getString("dir", cur.getName()) + "/manifest.json");
+        try {
+            if (m.isFile()) return versionOf(new String(readFile(m), StandardCharsets.UTF_8));
+        } catch (IOException ignored) { }
+        return version();
+    }
+
+    /** A tiny Web Store query: the newest version, or null when none is newer than ours (or it can't tell). */
+    private String remoteNewer(String have) {
+        try {
+            byte[] b = download("https://clients2.google.com/service/update2/crx?prodversion=130.0.0.0&acceptformat=crx3"
+                    + "&x=id%3Dnldhifdlnmmkgngbnnmkoppinhafblbi%26v%3D" + have + "%26uc");
+            java.util.regex.Matcher m = Pattern.compile("<updatecheck[^>]*\\sversion=\"([^\"]+)\"").matcher(new String(b, StandardCharsets.UTF_8));
+            return m.find() && compare(m.group(1), have) > 0 ? m.group(1) : null;
+        } catch (Exception e) {
+            return "?";   // couldn't tell: do the full download
+        }
+    }
+
     private String updateNow() throws IOException {
+        String cv = newestVersion();
+        String rv = remoteNewer(cv);
+        if (rv == null) return "Extension is up to date (v" + cv + ")";
         File next = new File(root, "next");
         deleteRec(next);
         byte[] crx = download(CRX_URL);
@@ -346,7 +346,6 @@ final class Hub {
             deleteRec(next);
             throw new IOException("downloaded package has no manifest");
         }
-        String cv = version();
         if (compare(nv, cv) <= 0) {
             deleteRec(next);
             return "Extension is up to date (v" + cv + ")";
@@ -357,9 +356,11 @@ final class Hub {
             unzip(crx, off, dest);
             deleteRec(next);
         }
-        activate(dest);
-        ui.post(this::reloadBackground);
-        return "Extension updated to v" + nv + " (was v" + cv + "). Reload the page to use it.";
+        // stage it: the running copy stays untouched until the app is restarted
+        prefs.edit().putString("dir", dest.getName()).commit();
+        File[] all = root.listFiles();
+        if (all != null) for (File f : all) if (!f.equals(dest) && !f.equals(cur)) deleteRec(f);
+        return "Extension updated to v" + nv + " (was v" + cv + "). Restart the app to use it.";
     }
 
     /** Point at a new extension folder and drop every other one. */

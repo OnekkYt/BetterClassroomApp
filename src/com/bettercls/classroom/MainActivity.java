@@ -24,7 +24,6 @@ public class MainActivity extends BaseActivity {
     private static final String HOME = "https://classroom.google.com/";
     private static final int M_SETTINGS = 1, M_OPTIONS = 2, M_DESKTOP = 3, M_UPDATE = 4, M_RELOAD = 5, M_PERF = 6, M_LOGIN = 7;
 
-    private static boolean checked;
     private Creds creds;
     private WebView web;
     private SharedPreferences prefs;
@@ -85,27 +84,8 @@ public class MainActivity extends BaseActivity {
 
         Uri data = getIntent().getData();
         String start = data != null && "classroom.google.com".equals(data.getHost()) ? data.toString() : HOME;
-        if (checked) {
-            web.loadUrl(start);
-        } else {
-            // get the newest extension first so the page opens already using it
-            checked = true;
-            boolean first = !prefs.getBoolean("seen", false);
-            prefs.edit().putBoolean("seen", true).apply();
-            TextView note = new TextView(this);
-            note.setText(first
-                    ? "Updating extension\u2026\n\nThe first time can take longer."
-                    : "Checking for extension update\u2026");
-            note.setPadding(48, 0, 48, 0);
-            note.setGravity(Gravity.CENTER);
-            note.setTextColor(0xFF5F6368);
-            note.setBackgroundColor(0xFFFFFFFF);
-            frame.addView(note, new FrameLayout.LayoutParams(-1, -1));
-            Hub.I.checkThen(() -> {
-                frame.removeView(note);
-                web.loadUrl(start);
-            }, first ? 25000 : 8000);
-        }
+        // open at once with the installed extension; a newer one downloads in the background (onResume) and is used from the next start
+        web.loadUrl(start);
     }
 
     private static boolean inApp(String host) {
