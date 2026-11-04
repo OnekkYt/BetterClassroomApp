@@ -1,9 +1,12 @@
 param([switch]$Bump, [string]$DevZip)   # -DevZip <zip>: bundle that extension and never use the Web Store   # -Bump raises the minor number first (1.4 -> 1.5)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sdk = "$env:LOCALAPPDATA\Android\Sdk"
-$bt = "$sdk\build-tools\36.0.0"
+$sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { "$env:LOCALAPPDATA\Android\Sdk" }
+$bt = (Get-ChildItem "$sdk\build-tools" -Directory | Sort-Object { [version]($_.Name -replace '-.*') } -Descending | Select-Object -First 1).FullName
 $jar = "$sdk\platforms\android-35\android.jar"
+if (-not (Test-Path $jar)) {
+    $jar = (Get-ChildItem "$sdk\platforms" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName + '\android.jar'
+}
 $out = "$here\build"
 $ks = "$here\debug.keystore"
 

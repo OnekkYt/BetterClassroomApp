@@ -1,0 +1,54 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dev_zip_url:
+        description: 'Direct URL of an extension .zip for a dev build (leave empty for the Web Store build)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # assets/ext is not in the repo; the store build pulls the extension from the Web Store
+      - name: Fetch extension from the Web Store
+        if: ${{ inputs.dev_zip_url == '' }}
+        shell: pwsh
+        run: |
+          $url = 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=120.0&acceptformat=crx2,crx3&x=id%3Dnldhifdlnmmkgngbnnmkoppinhafblbi%26uc'
+          Invoke-WebRequest $url -OutFile $env:RUNNER_TEMP\ext.crx
+          $b = [IO.File]::ReadAllBytes("$env:RUNNER_TEMP\ext.crx")
+          if ([Text.Encoding]::ASCII.GetString($b, 0, 4) -ne 'Cr24') { throw 'not a CRX file' }
+          $start = 12 + [BitConverter]::ToUInt32($b, 8)   # CRX3: magic, version, header length, header, zip
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\ext.zip", $b[$start..($b.Length - 1)])
+          Expand-Archive "$env:RUNNER_TEMP\ext.zip" assets\ext -Force
+
+      - name: Build (store)
+        if: ${{ inputs.dev_zip_url == '' }}
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Build (dev zip)
+        if: ${{ inputs.dev_zip_url != '' }}
+        shell: pwsh
+        run: |
+          Invoke-WebRequest '${{ inputs.dev_zip_url }}' -OutFile $env:RUNNER_TEMP\dev.zip
+          ./build.ps1 -DevZip $env:RUNNER_TEMP\dev.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterClassroom-apk
+          path: BetterClassroom*.apk
+          if-no-files-found: error
