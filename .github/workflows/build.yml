@@ -82,6 +82,7 @@ jobs:
               gh release view $tag *> $null
               if ($LASTEXITCODE -eq 0) {
                   gh release upload $tag $apk --clobber
+                  if ($LASTEXITCODE -eq 0) { gh release edit $tag --draft=false }   # an earlier failed attempt can leave a draft
               } else {
                   gh release create $tag $apk --target ${{ github.sha }} --title "Better Classroom $tag" --notes "Built from ${{ github.sha }}" @flags
               }
