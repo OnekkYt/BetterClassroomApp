@@ -11,6 +11,9 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -52,3 +55,23 @@ jobs:
           name: BetterClassroom-apk
           path: BetterClassroom*.apk
           if-no-files-found: error
+
+      # tag = version.txt (v1.13, or v1.13-dev for a dev build); re-running replaces the APK
+      - name: Publish release
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = (Get-Content version.txt -Raw).Trim()
+          $dev = '${{ inputs.dev_zip_url }}' -ne ''
+          $tag = if ($dev) { "v$ver-dev" } else { "v$ver" }
+          $apk = if ($dev) { 'BetterClassroom-dev.apk' } else { 'BetterClassroom.apk' }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag $apk --clobber
+          } else {
+              $flags = if ($dev) { @('--prerelease') } else { @() }
+              gh release create $tag $apk --target ${{ github.sha }} --title "Better Classroom $tag" --notes "Built from ${{ github.sha }}" @flags
+          }
+          if ($LASTEXITCODE) { throw 'release failed' }
