@@ -76,11 +76,16 @@ jobs:
           $dev = '${{ inputs.dev_zip_url }}' -ne ''
           $tag = if ($dev) { "v$ver-dev" } else { "v$ver" }
           $apk = if ($dev) { 'BetterClassroom-dev.apk' } else { 'BetterClassroom.apk' }
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-              gh release upload $tag $apk --clobber
-          } else {
-              $flags = if ($dev) { @('--prerelease') } else { @() }
-              gh release create $tag $apk --target ${{ github.sha }} --title "Better Classroom $tag" --notes "Built from ${{ github.sha }}" @flags
+          $flags = if ($dev) { @('--prerelease') } else { @() }
+          # GitHub's API now and then answers 502; try a few times
+          foreach ($try in 1..4) {
+              gh release view $tag *> $null
+              if ($LASTEXITCODE -eq 0) {
+                  gh release upload $tag $apk --clobber
+              } else {
+                  gh release create $tag $apk --target ${{ github.sha }} --title "Better Classroom $tag" --notes "Built from ${{ github.sha }}" @flags
+              }
+              if ($LASTEXITCODE -eq 0) { exit 0 }
+              Start-Sleep (15 * $try)
           }
-          if ($LASTEXITCODE) { throw 'release failed' }
+          throw 'release failed'
