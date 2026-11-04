@@ -25,6 +25,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # the same signing key every time, or Android refuses to install the APK over the previous one
+      - name: Restore signing key
+        shell: pwsh
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if (-not $env:KEYSTORE_BASE64) { throw 'Secret KEYSTORE_BASE64 is missing (Settings > Secrets and variables > Actions)' }
+          [IO.File]::WriteAllBytes("$PWD\debug.keystore", [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+
       # assets/ext is not in the repo; the store build pulls the extension from the Web Store
       - name: Fetch extension from the Web Store
         if: ${{ inputs.dev_zip_url == '' }}
